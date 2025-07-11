@@ -1,0 +1,79 @@
+import itertools
+import numpy as np
+import pandas as pd
+
+def evaluate_scenario(class_map, df, num_classes):
+    result = {i: {"Α":0, "Κ":0, "ΕΚΠΑΙΔΕΥΤΙΚΟΙ":0, "ΖΩΗΡΟΙ":0, "ΙΔΙΑΙΤΕΡΟΤΗΤΑ":0} for i in range(num_classes)}
+    for student, cls in class_map.items():
+        row = df.loc[df["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"] == student].iloc[0]
+        result[cls][row["ΦΥΛΟ"]] += 1
+        if row["ΠΑΙΔΙ ΕΚΠΑΙΔΕΥΤΙΚΟΥ"] == "Ν":
+            result[cls]["ΕΚΠΑΙΔΕΥΤΙΚΟΙ"] += 1
+        if row["ΖΩΗΡΟΣ"] == "Ν":
+            result[cls]["ΖΩΗΡΟΙ"] += 1
+        if row["ΙΔΙΑΙΤΕΡΟΤΗΤΑ"] == "Ν":
+            result[cls]["ΙΔΙΑΙΤΕΡΟΤΗΤΑ"] += 1
+    return result
+
+def score_scenario(eval_data, class_map, df, num_classes):
+    score = 0
+
+    def variance(key):
+        vals = np.array([eval_data[i][key] for i in range(num_classes)])
+        return np.var(vals)
+
+    score += variance("ΕΚΠΑΙΔΕΥΤΙΚΟΙ") * 3
+    score += variance("ΖΩΗΡΟΙ") * 3
+    score += variance("ΙΔΙΑΙΤΕΡΟΤΗΤΑ") * 3
+
+    boys = np.array([eval_data[i]["Α"] for i in range(num_classes)])
+    girls = np.array([eval_data[i]["Κ"] for i in range(num_classes)])
+    gender_diff = np.abs(boys - girls)
+    score += np.var(gender_diff) * 2
+
+    conflicts = 0
+    conflict_dict = df.set_index("ΟΝΟΜΑΤΕΠΩΝΥΜΟ")["ΣΥΓΚΡΟΥΣΗ"].dropna().apply(lambda x: [n.strip() for n in str(x).split(",")]).to_dict()
+    for student, cls in class_map.items():
+        conflicting = conflict_dict.get(student, [])
+        for c in conflicting:
+            if c in class_map and class_map[c] == cls:
+                conflicts += 1
+    score += conflicts * 10
+
+    counts = np.array([eval_data[i]["Α"] + eval_data[i]["Κ"] for i in range(num_classes)])
+    score += np.var(counts) * 2
+
+    return score
+
+def generate_edu_combinations(teacher_kids, num_classes):
+    if len(teacher_kids) <= num_classes:
+        return [tuple(range(len(teacher_kids)))]
+    else:
+        return list(itertools.product(range(num_classes), repeat=len(teacher_kids)))
+
+def find_best_scenario(df, num_classes):
+    teacher_kids = df[df["ΠΑΙΔΙ ΕΚΠΑΙΔΕΥΤΙΚΟΥ"] == "Ν"]["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"].tolist()
+    lively_kids = df[df["ΖΩΗΡΟΣ"] == "Ν"]["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"].tolist()
+    special_kids = df[df["ΙΔΙΑΙΤΕΡΟΤΗΤΑ"] == "Ν"]["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"].tolist()
+    edu_combs = generate_edu_combinations(teacher_kids, num_classes)
+    key_students = list(set(lively_kids + special_kids))
+    best_score = float('inf')
+    best_map = None
+    best_eval = None
+    for edu_assignment in edu_combs:
+        class_map = dict(zip(teacher_kids, edu_assignment))
+        remaining_students = [s for s in key_students if s not in class_map]
+        other_assignments = list(itertools.product(range(num_classes), repeat=len(remaining_students)))
+        for other_assignment in other_assignments:
+            full_map = class_map.copy()
+            full_map.update(dict(zip(remaining_students, other_assignment)))
+            eval_data = evaluate_scenario(full_map, df, num_classes)
+            score = score_scenario(eval_data, full_map, df, num_classes)
+            total_counts = [eval_data[i]["Α"] + eval_data[i]["Κ"] for i in range(num_classes)]
+            if max(total_counts) > 25:
+                continue
+            if score < best_score:
+                best_score = score
+                best_map = full_map
+                best_eval = eval_data
+    return best_map, best_eval, best_score
