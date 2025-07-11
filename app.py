@@ -5,6 +5,7 @@ import pandas as pd
 import math
 import random
 from io import BytesIO
+from itertools import combinations
 
 # --- Έλεγχος πρόσβασης ---
 password = st.text_input("🔒 Εισάγετε τον κωδικό πρόσβασης:", type="password")
@@ -27,20 +28,18 @@ def generate_teacher_scenarios(df, num_classes):
     teacher_children = df[df['ΠΑΙΔΙ ΕΚΠΑΙΔΕΥΤΙΚΟΥ'] == 'Ν']
     scenarios = []
 
-    if len(teacher_children) <= num_classes:
-        from itertools import permutations
-        perms = permutations(teacher_children['ΟΝΟΜΑΤΕΠΩΝΥΜΟ'], len(teacher_children))
-        seen = set()
-        for perm in perms:
-            combo = list(perm)
-            if tuple(sorted(combo)) in seen:
-                continue
-            seen.add(tuple(sorted(combo)))
+    from itertools import product
+    all_assignments = list(product(range(num_classes), repeat=len(teacher_children)))
+    seen = set()
+    for assignment in all_assignments:
+        if tuple(sorted(assignment)) in seen:
+            continue
+        seen.add(tuple(sorted(assignment)))
+        scenario_df = df.copy()
+        for idx, name in enumerate(teacher_children['ΟΝΟΜΑΤΕΠΩΝΥΜΟ']):
+            scenario_df.loc[scenario_df['ΟΝΟΜΑΤΕΠΩΝΥΜΟ'] == name, 'ΠΡΟΤΕΙΝΟΜΕΝΟ ΤΜΗΜΑ'] = f'T{assignment[idx] + 1}'
+        scenarios.append(scenario_df)
 
-            scenario_df = df.copy()
-            for i, name in enumerate(combo):
-                scenario_df.loc[scenario_df['ΟΝΟΜΑΤΕΠΩΝΥΜΟ'] == name, 'ΠΡΟΤΕΙΝΟΜΕΝΟ ΤΜΗΜΑ'] = f'T{i%num_classes+1}'
-            scenarios.append(scenario_df)
     return scenarios
 
 # --- Εφαρμογή Βημάτων 2 και 3 για κάθε σενάριο ---
