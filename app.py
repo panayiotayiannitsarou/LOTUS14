@@ -107,15 +107,16 @@ if uploaded_file:
 
     # --- Κουμπί Οριστικοποίησης ---
     if st.button("🔒 Οριστικοποίηση Σενάριου για Επόμενα Βήματα"):
-        selected_df['ΤΜΗΜΑ'] = selected_df['ΠΡΟΤΕΙΝΟΜΕΝΟ ΤΜΗΜΑ']
+        final_df = selected_df.copy()
+        final_df['ΤΜΗΜΑ'] = final_df['ΠΡΟΤΕΙΝΟΜΕΝΟ ΤΜΗΜΑ']
+        st.session_state['final_df'] = final_df
         st.success("Οι τιμές από τη στήλη 'ΠΡΟΤΕΙΝΟΜΕΝΟ ΤΜΗΜΑ' αντιγράφηκαν στη στήλη 'ΤΜΗΜΑ'.")
 
-    # --- ΝΕΟ: Κουμπί Εξαγωγής Excel ---
-    output = BytesIO()
-    selected_df.to_excel(output, index=False)
-    st.download_button(
-        label="📥 Λήψη Excel Κατανομής",
-        data=output.getvalue(),
-        file_name="katanomi_senario.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        output = BytesIO()
+        final_df.to_excel(output, index=False)
+        st.download_button(
+            label="📥 Λήψη Excel Κατανομής",
+            data=output.getvalue(),
+            file_name="katanomi_senario.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
