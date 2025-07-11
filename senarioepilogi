@@ -1,0 +1,99 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import itertools
+
+# --- Ορισμός συναρτήσεων (όπως έδωσα πριν) ---
+def generate_class_combinations(students, num_classes):
+    return list(itertools.product(range(num_classes), repeat=len(students)))
+
+def evaluate_scenario(class_map, df, num_classes):
+    result = {i: {"Α":0, "Κ":0, "ΕΚΠΑΙΔΕΥΤΙΚΟΙ":0, "ΖΩΗΡΟΙ":0, "ΙΔΙΑΙΤΕΡΟΤΗΤΑ":0} for i in range(num_classes)}
+    for student, cls in class_map.items():
+        row = df.loc[df["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"]==student].iloc[0]
+        result[cls][row["ΦΥΛΟ"]] += 1
+        if row["ΠΑΙΔΙ ΕΚΠΑΙΔΕΥΤΙΚΟΥ"] == "Ν":
+            result[cls]["ΕΚΠΑΙΔΕΥΤΙΚΟΙ"] += 1
+        if row["ΖΩΗΡΟΣ"] == "Ν":
+            result[cls]["ΖΩΗΡΟΙ"] += 1
+        if row["ΙΔΙΑΙΤΕΡΟΤΗΤΑ"] == "Ν":
+            result[cls]["ΙΔΙΑΙΤΕΡΟΤΗΤΑ"] += 1
+    return result
+
+def score_scenario(eval_data, class_map, df, num_classes):
+    score = 0
+    def variance(key):
+        vals = np.array([eval_data[i][key] for i in range(num_classes)])
+        return np.var(vals)
+    score += variance("ΕΚΠΑΙΔΕΥΤΙΚΟΙ") * 3
+    score += variance("ΖΩΗΡΟΙ") * 3
+    score += variance("ΙΔΙΑΙΤΕΡΟΤΗΤΑ") * 3
+    boys = np.array([eval_data[i]["Α"] for i in range(num_classes)])
+    girls = np.array([eval_data[i]["Κ"] for i in range(num_classes)])
+    gender_diff = np.abs(boys - girls)
+    score += np.var(gender_diff) * 2
+    conflicts = 0
+    conflict_dict = df.set_index("ΟΝΟΜΑΤΕΠΩΝΥΜΟ")["ΣΥΓΚΡΟΥΣΗ"].dropna().apply(lambda x: [n.strip() for n in str(x).split(",")]).to_dict()
+    for student, cls in class_map.items():
+        conflicting = conflict_dict.get(student, [])
+        for c in conflicting:
+            if c in class_map and class_map[c] == cls:
+                conflicts += 1
+    score += conflicts * 10
+    counts = np.array([eval_data[i]["Α"] + eval_data[i]["Κ"] for i in range(num_classes)])
+    score += np.var(counts) * 2
+    return score
+
+def find_best_scenario(df, num_classes):
+    kids_edu = df[df["ΠΑΙΔΙ ΕΚΠΑΙΔΕΥΤΙΚΟΥ"] == "Ν"]["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"].tolist()
+    kids_lively = df[df["ΖΩΗΡΟΣ"] == "Ν"]["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"].tolist()
+    kids_special = df[df["ΙΔΙΑΙΤΕΡΟΤΗΤΑ"] == "Ν"]["ΟΝΟΜΑΤΕΠΩΝΥΜΟ"].tolist()
+    key_students = list(set(kids_edu + kids_lively + kids_special))
+    all_assignments = generate_class_combinations(key_students, num_classes)
+    best_score = float('inf')
+    best_map = None
+    best_eval = None
+    for assignment in all_assignments:
+        class_map = dict(zip(key_students, assignment))
+        eval_data = evaluate_scenario(class_map, df, num_classes)
+        score = score_scenario(eval_data, class_map, df, num_classes)
+        if score < best_score:
+            best_score = score
+            best_map = class_map
+            best_eval = eval_data
+    return best_map, best_eval, best_score
+
+# --- Streamlit UI ---
+st.title("Ψηφιακή Κατανομή Μαθητών - Επιλογή Καλύτερου Σεναρίου")
+
+uploaded_file = st.file_uploader("Φόρτωσε το αρχείο Excel με τους μαθητές", type=["xlsx"])
+if uploaded_file:
+    df = pd.read_excel(uploaded_file)
+    num_students = len(df)
+    num_classes = st.number_input("Επιλογή αριθμού τμημάτων", min_value=2, max_value=10, value=2)
+
+    if st.button("Υπολογισμός καλύτερου σεναρίου"):
+        with st.spinner("Υπολογίζω το καλύτερο σενάριο..."):
+            best_map, best_eval, best_score = find_best_scenario(df, num_classes)
+            df['ΤΜΗΜΑ'] = df['ΟΝΟΜΑΤΕΠΩΝΥΜΟ'].map(best_map)
+            df['ΤΜΗΜΑ'] = df['ΤΜΗΜΑ'].apply(lambda x: f"Τμήμα {x+1}" if pd.notna(x) else "")
+            st.success(f"Βρέθηκε καλύτερο σενάριο με βαθμολογία: {best_score:.3f}")
+
+            st.dataframe(df)
+
+            # Εμφάνιση πίνακα χαρακτηριστικών ανά τμήμα
+            eval_df = pd.DataFrame(best_eval).T
+            eval_df["Σύνολο"] = eval_df["Α"] + eval_df["Κ"]
+            st.write("Στατιστικά ανά τμήμα:")
+            st.dataframe(eval_df)
+
+            # Προσθήκη κουμπιού εξαγωγής Excel
+            def to_excel(df):
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False, sheet_name='Κατανομή')
+                processed_data = output.getvalue()
+                return processed_data
+
+            excel_data = to_excel(df)
+            st.download_button(label='Κατέβασε το καλύτερο σενάριο σε Excel', data=excel_data, file_name='κατανομή_μαθητών.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
